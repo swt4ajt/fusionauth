@@ -1,0 +1,57 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write  # Ensure the token has write access
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      # Removed Docker login step
+
+      - name: Get latest tag and set new tag
+        id: new_tag
+        run: |
+          # Get current year and month
+          CURRENT_YEAR_MONTH=$(date +'%Y.%m')
+          
+          # Fetch all tags from remote to ensure we're working with up-to-date information
+          git fetch --tags
+          
+          # Get latest tag with current YEAR.MONTH prefix from both local and remote
+          LATEST_TAG=$(git tag --list "$CURRENT_YEAR_MONTH.*" | sort -V | tail -n 1)
+          
+          if [ -z "$LATEST_TAG" ]; then
+            # If no tag found, start with 1
+            NEW_TAG="$CURRENT_YEAR_MONTH.1"
+          else
+            # If tag found, increment the last number
+            LAST_NUMBER=$(echo $LATEST_TAG | awk -F. '{print $3}')
+            NEW_NUMBER=$((LAST_NUMBER + 1))
+            NEW_TAG="$CURRENT_YEAR_MONTH.$NEW_NUMBER"
+          fi
+          
+          # Set the new tag as environment variable and create it
+          echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
+          git tag $NEW_TAG
+          git push origin $NEW_TAG
+
+      - name: Build and push Docker image to images.streglown.co.uk
+        run: |
+          IMAGE_NAME=images.streglown.co.uk/swt4ajt/fusion
+          TAG_NAME=${{ env.NEW_TAG }}
+          docker build -t $IMAGE_NAME:$TAG_NAME -t $IMAGE_NAME:latest .
+          docker push $IMAGE_NAME:$TAG_NAME
+          docker push $IMAGE_NAME:latest
